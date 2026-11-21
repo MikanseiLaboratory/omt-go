@@ -23,9 +23,9 @@ jobs:
           go-version: "1.27.4"
           cache: true
       - name: Test core
-        run: go test ./...
+        run: go test . ./cmd/...
       - name: Vet
-        run: go vet ./...
+        run: go vet . ./cmd/...
 
   example:
     strategy:
@@ -35,6 +35,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       GOEXPERIMENT: simd
+      CGO_ENABLED: ${{ runner.os == 'Windows' && '0' || '1' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
