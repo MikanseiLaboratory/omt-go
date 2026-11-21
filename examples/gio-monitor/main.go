@@ -110,6 +110,10 @@ func (a *appState) run(initialURL string) error {
 	a.win = new(app.Window)
 	a.win.Option(app.Title("OMT Go Monitor"), app.Size(unit.Dp(1280), unit.Dp(760)))
 	a.theme = material.NewTheme()
+	a.theme.Palette.Bg = color.NRGBA{R: 16, G: 18, B: 22, A: 255}
+	a.theme.Palette.Fg = color.NRGBA{R: 230, G: 232, B: 236, A: 255}
+	a.theme.Palette.ContrastBg = color.NRGBA{R: 70, G: 90, B: 200, A: 255}
+	a.theme.Palette.ContrastFg = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
 	if a.mode == modeMonitor {
 		if a.discoveryServer != "" {
 			b, err := omt.NewServerBrowser(a.discoveryServer)
@@ -354,6 +358,7 @@ func (a *appState) connectURL(url string) {
 func (a *appState) decodeLoop(rx *omt.Receiver) {
 	log.Printf("decode loop started")
 	var codec *vmx.Codec
+	var cw, ch int
 	var last time.Time
 	var fps float64
 	var count uint64
@@ -368,13 +373,13 @@ func (a *appState) decodeLoop(rx *omt.Receiver) {
 			if v.Width <= 0 || v.Height <= 0 {
 				continue
 			}
-			if codec == nil {
+			if codec == nil || cw != v.Width || ch != v.Height {
 				c, err := vmx.New(vmx.Config{Width: v.Width, Height: v.Height, Profile: vmx.ProfileOmtSQ, ColorSpace: vmx.ColorSpace(v.ColorSpace)})
 				if err != nil {
 					a.setStatus("codec: " + err.Error())
 					return
 				}
-				codec = c
+				codec, cw, ch = c, v.Width, v.Height
 			}
 			start := time.Now()
 			if err := codec.LoadFrom(v.Data); err != nil {
@@ -401,7 +406,8 @@ func (a *appState) decodeLoop(rx *omt.Receiver) {
 			last = now
 			count++
 			a.latest.Store(&frame{img: img, width: v.Width, height: v.Height, fps: fps,
-				decodeMS: float64(elapsed.Microseconds()) / 1000, frames: count, drops: rx.Stats().FramesDropped})
+				decodeMS: float64(elapsed.Microseconds()) / 1000, frames: count, drops: rx.Stats().FramesDropped,
+				info: "color=" + codec.ColorSimdPath()})
 			a.win.Invalidate()
 		}
 	}

@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	gioui.org v0.10.3
-	github.com/MikanseiLaboratory/vmx-go v0.1.0
+	github.com/MikanseiLaboratory/vmx-go v0.1.1
 	github.com/brutella/dnssd v1.2.14
 )
 
