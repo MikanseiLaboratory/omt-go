@@ -251,7 +251,21 @@ func (s *Sender) SendAudio(a AudioFrame) error {
 
 // SendMetadata sends a metadata XML frame to all peers.
 func (s *Sender) SendMetadata(xml string) {
-	s.broadcast(EncodeMetadataFrame(0, xml), false)
+	s.broadcastAll(EncodeMetadataFrame(0, xml))
+}
+
+func (s *Sender) broadcastAll(b []byte) {
+	s.mu.Lock()
+	peers := make([]*peer, 0, len(s.peers))
+	for p := range s.peers {
+		peers = append(peers, p)
+	}
+	s.mu.Unlock()
+	for _, p := range peers {
+		s.enqueue(p, b)
+	}
+	s.framesSent.Add(1)
+	s.bytesSent.Add(uint64(len(b)))
 }
 
 func (s *Sender) Stats() Stats {
