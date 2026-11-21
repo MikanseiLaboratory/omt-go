@@ -3,6 +3,7 @@ package omt
 import (
 	"fmt"
 	"net"
+	"sort"
 	"sync"
 	"time"
 )
@@ -85,17 +86,29 @@ func (s *DiscoveryServer) acceptLoop() {
 			initial = append(initial, e.addr)
 		}
 		s.mu.Unlock()
-		for _, a := range initial {
-			p.write(EncodeMetadataFrame(0, a.XML()))
-		}
 		go s.peerLoop(p)
+		// Do not block the accept loop on a slow client's initial snapshot.
+		go func() {
+			for _, a := range initial {
+				if err := p.write(EncodeMetadataFrame(0, a.XML())); err != nil {
+					return
+				}
+			}
+		}()
 	}
 }
 
 func (p *serverPeer) write(b []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	// A stalled discovery client must not wedge the shared read loop that
+	// relays registrations to every other client.
+	_ = p.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 	_, err := p.conn.Write(b)
+	_ = p.conn.SetWriteDeadline(time.Time{})
+	if err != nil {
+		_ = p.conn.Close()
+	}
 	return err
 }
 
@@ -106,11 +119,7 @@ func (s *DiscoveryServer) peerLoop(p *serverPeer) {
 		if err != nil {
 			return
 		}
-		xml := f.MetadataString()
-		if xml == "" {
-			xml = string(f.Data)
-		}
-		a, err := ParseAddress(xml)
+		a, err := ParseAddress(f.XML())
 		if err != nil {
 			continue
 		}
@@ -122,7 +131,7 @@ func (s *DiscoveryServer) handleAddress(p *serverPeer, a Address) {
 	key := a.Name + "\x00" + fmt.Sprint(a.Port)
 	peerIP := ""
 	if host, _, err := net.SplitHostPort(p.conn.RemoteAddr().String()); err == nil {
-		peerIP = host
+		peerIP = normalizeIP(host)
 	}
 
 	s.mu.Lock()
@@ -134,9 +143,12 @@ func (s *DiscoveryServer) handleAddress(p *serverPeer, a Address) {
 			removed.Removed = true
 			peers := s.peerListLocked()
 			s.mu.Unlock()
-			for _, q := range peers {
-				_ = q.write(EncodeMetadataFrame(0, removed.XML()))
-			}
+			b := EncodeMetadataFrame(0, removed.XML())
+			go func() {
+				for _, q := range peers {
+					_ = q.write(b)
+				}
+			}()
 			return
 		}
 		s.mu.Unlock()
@@ -151,9 +163,11 @@ func (s *DiscoveryServer) handleAddress(p *serverPeer, a Address) {
 	peers := s.peerListLocked()
 	s.mu.Unlock()
 	b := EncodeMetadataFrame(0, a.XML())
-	for _, q := range peers {
-		_ = q.write(b)
-	}
+	go func() {
+		for _, q := range peers {
+			_ = q.write(b)
+		}
+	}()
 }
 
 func (s *DiscoveryServer) peerListLocked() []*serverPeer {
@@ -181,9 +195,11 @@ func (s *DiscoveryServer) dropPeer(p *serverPeer) {
 	s.mu.Unlock()
 	for _, a := range removed {
 		b := EncodeMetadataFrame(0, a.XML())
-		for _, q := range peers {
-			_ = q.write(b)
-		}
+		go func() {
+			for _, q := range peers {
+				_ = q.write(b)
+			}
+		}()
 	}
 }
 
@@ -194,6 +210,12 @@ func (s *DiscoveryServer) Snapshot() []Address {
 	for _, e := range s.entries {
 		out = append(out, e.addr)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].Port < out[j].Port
+	})
 	return out
 }
 
@@ -219,11 +241,12 @@ func (s *DiscoveryServer) Close() error {
 
 // DiscoveryClient registers sources with a discovery server and learns others.
 type DiscoveryClient struct {
-	conn net.Conn
-	mu   sync.Mutex
-	src  map[string]Address
-	done chan struct{}
-	once sync.Once
+	conn    net.Conn
+	mu      sync.Mutex
+	writeMu sync.Mutex
+	src     map[string]Address
+	done    chan struct{}
+	once    sync.Once
 }
 
 func NewDiscoveryClient(url string) (*DiscoveryClient, error) {
@@ -250,11 +273,7 @@ func (c *DiscoveryClient) readLoop() {
 		if err != nil {
 			return
 		}
-		xml := f.MetadataString()
-		if xml == "" {
-			xml = string(f.Data)
-		}
-		a, err := ParseAddress(xml)
+		a, err := ParseAddress(f.XML())
 		if err != nil {
 			continue
 		}
@@ -271,13 +290,20 @@ func (c *DiscoveryClient) readLoop() {
 
 func (c *DiscoveryClient) Register(a Address) error {
 	a.Removed = false
-	_, err := c.conn.Write(EncodeMetadataFrame(0, a.XML()))
-	return err
+	return c.writeFrame(EncodeMetadataFrame(0, a.XML()))
 }
 
 func (c *DiscoveryClient) Deregister(a Address) error {
 	a.Removed = true
-	_, err := c.conn.Write(EncodeMetadataFrame(0, a.XML()))
+	return c.writeFrame(EncodeMetadataFrame(0, a.XML()))
+}
+
+func (c *DiscoveryClient) writeFrame(b []byte) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	_ = c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	_, err := c.conn.Write(b)
+	_ = c.conn.SetWriteDeadline(time.Time{})
 	return err
 }
 
@@ -288,6 +314,12 @@ func (c *DiscoveryClient) Sources() []Address {
 	for _, a := range c.src {
 		out = append(out, a)
 	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].Port < out[j].Port
+	})
 	return out
 }
 

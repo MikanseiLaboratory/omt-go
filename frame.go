@@ -26,6 +26,19 @@ func (f Frame) MetadataString() string {
 	return string(f.Metadata[:end])
 }
 
+// XML returns the control XML carried by the frame. Metadata frames put the
+// document in Data (some implementations NUL-terminate it), while media frames
+// carry it in the per-frame metadata trailer.
+func (f Frame) XML() string {
+	if s := f.MetadataString(); s != "" {
+		return s
+	}
+	if f.Header.Type == FrameMetadata {
+		return metadataXML(f.Data)
+	}
+	return ""
+}
+
 func appendHeader(dst []byte, h FrameHeader) []byte {
 	var b [HeaderSize]byte
 	b[0] = h.Version

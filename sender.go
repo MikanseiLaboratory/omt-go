@@ -3,10 +3,10 @@ package omt
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 )
 
 // Sender listens for OMT receivers and sends video/audio/metadata.
@@ -65,18 +65,23 @@ func NewSender(name string, opts ...Option) (*Sender, error) {
 	if o.advertise {
 		if o.discoveryServer != "" {
 			dc, err := NewDiscoveryClient(o.discoveryServer)
-			if err == nil {
-				s.disc = dc
-				_ = dc.Register(Address{Name: s.instance, Port: s.port})
+			if err != nil {
+				s.listener.Close()
+				return nil, fmt.Errorf("omt: discovery server: %w", err)
+			}
+			s.disc = dc
+			if err := dc.Register(Address{Name: s.instance, Port: s.port}); err != nil {
+				dc.Close()
+				s.listener.Close()
+				return nil, fmt.Errorf("omt: discovery register: %w", err)
 			}
 		} else {
 			adv, err := NewAdvertiser(s.instance, s.port)
-			if err == nil {
-				s.advertiser = adv
-			} else {
+			if err != nil {
 				s.listener.Close()
 				return nil, err
 			}
+			s.advertiser = adv
 		}
 	}
 	go s.acceptLoop()
@@ -161,10 +166,7 @@ func (s *Sender) readLoop(p *peer) {
 		if err != nil {
 			return
 		}
-		xml := f.MetadataString()
-		if xml == "" {
-			xml = string(f.Data)
-		}
+		xml := f.XML()
 		if sub, ok := ParseSubscribe(xml); ok {
 			p.mu.Lock()
 			if sub.Video {
@@ -230,10 +232,14 @@ func (s *Sender) broadcast(b []byte, video bool) {
 
 // SendVideo sends one encoded VMX1 frame to subscribed receivers.
 func (s *Sender) SendVideo(v VideoFrame) error {
-	if len(v.Data) > MaxVideoSize {
-		return fmt.Errorf("omt: video frame too large")
+	if v.Width <= 0 || v.Height <= 0 {
+		return fmt.Errorf("omt: invalid video dimensions %dx%d", v.Width, v.Height)
 	}
-	if v.Aspect == 0 && v.Width > 0 && v.Height > 0 {
+	v.Metadata = trimMetadataNUL(v.Metadata)
+	if err := validateFrameSize(VideoExtHeaderSize, len(v.Data), v.Metadata, MaxVideoSize); err != nil {
+		return err
+	}
+	if v.Aspect == 0 {
 		v.Aspect = float32(v.Width) / float32(v.Height)
 	}
 	s.broadcast(EncodeVideoFrame(v), true)
@@ -242,16 +248,46 @@ func (s *Sender) SendVideo(v VideoFrame) error {
 
 // SendAudio sends one FPA1 frame.
 func (s *Sender) SendAudio(a AudioFrame) error {
-	if len(a.Data) > MaxAudioSize {
-		return fmt.Errorf("omt: audio frame too large")
+	a.Metadata = trimMetadataNUL(a.Metadata)
+	if err := validateFrameSize(AudioExtHeaderSize, len(a.Data), a.Metadata, MaxAudioSize); err != nil {
+		return err
 	}
 	s.broadcast(EncodeAudioFrame(a), false)
 	return nil
 }
 
 // SendMetadata sends a metadata XML frame to all peers.
-func (s *Sender) SendMetadata(xml string) {
+func (s *Sender) SendMetadata(xml string) error {
+	xml = trimMetadataNUL(xml)
+	if len(xml) > MaxMetadataSize {
+		return fmt.Errorf("omt: metadata too large (%d > %d)", len(xml), MaxMetadataSize)
+	}
 	s.broadcastAll(EncodeMetadataFrame(0, xml))
+	return nil
+}
+
+func trimMetadataNUL(s string) string {
+	for len(s) > 0 && s[len(s)-1] == 0 {
+		s = s[:len(s)-1]
+	}
+	return s
+}
+
+func validateFrameSize(extHeader, dataLen int, metadata string, maxData int) error {
+	if dataLen > maxData {
+		return fmt.Errorf("omt: frame data too large (%d > %d)", dataLen, maxData)
+	}
+	metaLen := 0
+	if metadata != "" {
+		metaLen = len(metadata) + 1 // includes the NUL terminator
+	}
+	if metaLen > MaxMetadataSize {
+		return fmt.Errorf("omt: metadata too large (%d > %d)", metaLen, MaxMetadataSize)
+	}
+	if total := extHeader + dataLen + metaLen; total > MaxFrameSize {
+		return fmt.Errorf("omt: frame too large (%d > %d)", total, MaxFrameSize)
+	}
+	return nil
 }
 
 func (s *Sender) broadcastAll(b []byte) {
@@ -318,28 +354,39 @@ func (s *Sender) Close() error {
 	return nil
 }
 
-// ParseURL parses omt://host:port/name.
+// ParseURL parses omt://host:port/name. A bare host[:port][/name] is also
+// accepted for convenience.
 func ParseURL(url string) (host string, port int, name string, err error) {
-	rest := strings.TrimPrefix(url, "omt://")
-	if rest == url && !strings.HasPrefix(url, "omt://") {
-		// allow bare host:port
+	rest := url
+	if strings.HasPrefix(url, "omt://") {
+		rest = strings.TrimPrefix(url, "omt://")
+	} else if strings.Contains(url, "://") {
+		return "", 0, "", fmt.Errorf("omt: invalid URL %q", url)
 	}
 	hostPort := rest
 	if i := strings.IndexByte(rest, '/'); i >= 0 {
 		hostPort = rest[:i]
 		name = rest[i+1:]
 	}
+	if hostPort == "" {
+		return "", 0, "", fmt.Errorf("omt: invalid URL %q", url)
+	}
 	if h, p, e := net.SplitHostPort(hostPort); e == nil {
 		host = h
-		_, _ = fmt.Sscan(p, &port)
+		port, err = strconv.Atoi(p)
+		if err != nil || port < 0 || port > 65535 {
+			return "", 0, "", fmt.Errorf("omt: invalid port in URL %q", url)
+		}
+	} else if strings.HasPrefix(hostPort, "[") {
+		return "", 0, "", fmt.Errorf("omt: invalid URL %q", url)
 	} else {
+		if strings.Contains(hostPort, ":") {
+			return "", 0, "", fmt.Errorf("omt: invalid URL %q", url)
+		}
 		host = hostPort
-		port = 0
 	}
 	if host == "" {
 		return "", 0, "", fmt.Errorf("omt: invalid URL %q", url)
 	}
 	return host, port, name, nil
 }
-
-var _ = time.Second

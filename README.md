@@ -23,7 +23,7 @@ v0.1 is the minimum needed for the interoperability tests:
 | Go Test Patterns → Rust Studio Monitor | works on macOS |
 | Go sender/receiver loopback | tested |
 | Discovery server relay | tested |
-| Windows / Linux | CI build + user validation |
+| Windows | validated (core, Rust interop, DNS-SD, discovery server) |
 
 Not yet implemented: audio playback in the monitor, reconnect after a live
 socket failure, alpha video, 1/8 preview receive, and TLS.
@@ -58,6 +58,10 @@ SIMD requires `GOEXPERIMENT=simd`; without it the scalar codec is used.
 - The four Tally strings are matched verbatim, including the libomtnet
   `Program==` quirk.
 - Sender listens on 6400–6600 and advertises `_omt._tcp` as `HOST (Source)`.
+  Its SRV target is `HOST-omt.local` to coexist with other mDNS responders on
+  the same machine.
+- Discovery-server addresses are converted to URLs with IPv6 brackets
+  (`omt://[::1]:6400/Source`).
 
 ## License
 
