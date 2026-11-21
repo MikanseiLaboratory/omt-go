@@ -3,6 +3,7 @@ package omt
 import (
 	"encoding/xml"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 )
@@ -243,7 +244,7 @@ func ParseAddress(s string) (Address, error) {
 			if c.XMLName.Local == "IPAddress" || c.XMLName.Local == "Address" {
 				t := strings.TrimSpace(c.Text)
 				if t != "" {
-					addrs = append(addrs, t)
+					addrs = append(addrs, normalizeIP(t))
 				}
 			}
 		}
@@ -260,4 +261,17 @@ func metadataXML(data []byte) string {
 		}
 	}
 	return string(data[:end])
+}
+
+// normalizeIP converts IPv4-mapped IPv6 addresses (as reported by dual-stack
+// listeners) to their IPv4 form so the resulting omt:// URL works everywhere.
+func normalizeIP(s string) string {
+	ip := net.ParseIP(s)
+	if ip == nil {
+		return s
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return v4.String()
+	}
+	return ip.String()
 }

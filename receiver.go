@@ -45,33 +45,41 @@ func Dial(url string, opts ...Option) (*Receiver, error) {
 		conn: conn, videos: make(chan VideoFrame, 3), audios: make(chan AudioFrame, 8),
 		closed: make(chan struct{}),
 	}
-	// Order matters: settings, then subscribe, then quality.
-	if err := r.sendMeta(PreviewOffXML); err != nil {
-		conn.Close()
-		return nil, err
+	// Match libomtnet's handshake: metadata subscription, preview state, video
+	// subscription, then the suggested quality.
+	for _, xml := range []string{SubscribeMetaXML, previewXML(o.preview), SubscribeVideoXML, QualityXML(o.quality)} {
+		if err := r.sendMeta(xml); err != nil {
+			conn.Close()
+			return nil, err
+		}
 	}
-	if o.preview {
-		_ = r.sendMeta(PreviewOnXML)
-	}
-	if err := r.sendMeta(SubscribeVideoXML); err != nil {
-		conn.Close()
-		return nil, err
-	}
-	_ = r.sendMeta(QualityXML(o.quality))
 
 	if o.audio {
 		ac, err := d.Dial("tcp", net.JoinHostPort(host, fmt.Sprint(port)))
-		if err == nil {
-			r.audioConn = ac
-			if tcp, ok := ac.(*net.TCPConn); ok {
-				_ = tcp.SetNoDelay(true)
-			}
-			_ = writeFrame(ac, EncodeMetadataFrame(0, SubscribeAudioXML))
-			go r.readAudio()
+		if err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("omt: audio connection: %w", err)
 		}
+		r.audioConn = ac
+		if tcp, ok := ac.(*net.TCPConn); ok {
+			_ = tcp.SetNoDelay(true)
+		}
+		if err := writeFrame(ac, EncodeMetadataFrame(0, SubscribeAudioXML)); err != nil {
+			conn.Close()
+			ac.Close()
+			return nil, fmt.Errorf("omt: subscribe audio: %w", err)
+		}
+		go r.readAudio()
 	}
 	go r.readVideo()
 	return r, nil
+}
+
+func previewXML(on bool) string {
+	if on {
+		return PreviewOnXML
+	}
+	return PreviewOffXML
 }
 
 func (r *Receiver) sendMeta(xml string) error {
@@ -101,11 +109,7 @@ func (r *Receiver) readVideo() {
 		}
 		r.bytes.Add(uint64(HeaderSize + len(f.Data) + len(f.Metadata)))
 		if f.Header.Type == FrameMetadata {
-			xml := f.MetadataString()
-			if xml == "" {
-				xml = string(f.Data)
-			}
-			if info, ok := ParseSenderInfo(xml); ok {
+			if info, ok := ParseSenderInfo(f.XML()); ok {
 				r.info.Store(info)
 			}
 			continue

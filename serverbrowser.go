@@ -1,6 +1,9 @@
 package omt
 
-import "time"
+import (
+	"sort"
+	"time"
+)
 
 // ServerBrowser lists sources relayed by an OMT discovery server.
 type ServerBrowser struct {
@@ -20,14 +23,20 @@ func (b *ServerBrowser) Refresh(wait time.Duration) []Source {
 		time.Sleep(wait)
 	}
 	addrs := b.client.Sources()
+	sort.Slice(addrs, func(i, j int) bool {
+		if addrs[i].Name != addrs[j].Name {
+			return addrs[i].Name < addrs[j].Name
+		}
+		return addrs[i].Port < addrs[j].Port
+	})
 	out := make([]Source, 0, len(addrs))
 	for _, a := range addrs {
 		host, source := SplitInstance(a.Name)
-		ip := host
+		urlHost := host
 		if len(a.Addresses) > 0 {
-			ip = a.Addresses[0]
+			urlHost = a.Addresses[0]
 		}
-		url := "omt://" + ip + ":" + itoa(a.Port) + "/" + source
+		url := sourceURL(urlHost, a.Port, a.Addresses, source)
 		out = append(out, Source{Name: a.Name, Host: host, Port: a.Port, Addresses: a.Addresses, URL: url})
 	}
 	return out

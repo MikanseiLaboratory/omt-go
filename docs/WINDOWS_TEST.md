@@ -30,6 +30,27 @@
    - resolution, fps, decode ms, drop count
    - any output from the terminal
 
+## Validation results
+
+Windows 11 (amd64, Go 1.27.0, `GOEXPERIMENT=simd`), 2026-11-21:
+
+- `go test . ./cmd/...` passes with and without `GOEXPERIMENT=simd`; `go vet`
+  is clean.
+- Go test-pattern sender → Rust `receive_to_jpeg` (320×180, 30 fps): decoded
+  frames, 0 drops.
+- Gio example sender (`-width 640 -height 360 -port 6550`) → Rust
+  `receive_to_jpeg`: decoded 640×360 frames, 0 drops.
+- Gio example monitor connected to the Go CLI sender: subscribed and ran its
+  decode loop without errors.
+- Rust `send_colorbar` → Go receiver (320×180): VMX1 decoded, `OMTInfo` parsed.
+- DNS-SD: Rust `Discovery` sees the Go sender, and the Go browser sees Rust
+  sources. The Go sender advertises its SRV target as `HOST-omt.local` so it
+  does not collide with another mDNS responder that already owns
+  `HOSTNAME.local` on the same machine.
+- Discovery server, both directions: Go server ↔ Rust client and Rust server ↔
+  Go client register and relay sources.
+- Discovery-server URLs bracket IPv6 literals (`omt://[::1]:6400/...`).
+
 ## Known limitations
 
 - The monitor does not play audio.

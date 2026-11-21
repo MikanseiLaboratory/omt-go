@@ -48,6 +48,45 @@ func sanitizeHost(s string) string {
 	return out
 }
 
+// advertiseHost returns a DNS label for the SRV target that is distinct from
+// the plain machine name. Keeping the OMT instance name as "HOST (Source)"
+// preserves the protocol naming while avoiding a host-record conflict with
+// another mDNS responder that already publishes HOSTNAME.local.
+func advertiseHost() string {
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "host"
+	}
+	if i := strings.IndexByte(host, '.'); i >= 0 {
+		host = host[:i]
+	}
+	host = sanitizeHost(host)
+	const suffix = "-omt"
+	if len(host) > 63-len(suffix) {
+		host = strings.TrimRight(host[:63-len(suffix)], "-")
+	}
+	if host == "" {
+		host = "host"
+	}
+	return host + suffix
+}
+
+// sourceURL builds omt://host:port/source, bracketing IPv6 literals.
+func sourceURL(host string, port int, addresses []string, source string) string {
+	if host == "" && len(addresses) > 0 {
+		host = addresses[0]
+	}
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	host = strings.TrimPrefix(strings.TrimSuffix(host, "]"), "[")
+	endpoint := host
+	if port > 0 {
+		endpoint = net.JoinHostPort(host, itoa(port))
+	}
+	return "omt://" + endpoint + "/" + source
+}
+
 // SplitInstance splits "HOST (Source)".
 func SplitInstance(name string) (host, source string) {
 	name = strings.TrimSpace(name)
@@ -70,6 +109,11 @@ type Advertiser struct {
 func NewAdvertiser(instance string, port int) (*Advertiser, error) {
 	cfg := dnssd.Config{
 		Name: instance, Type: DNSDServiceType, Domain: "local", Port: port,
+		// Use a dedicated host name. Other mDNS responders on the same machine
+		// (for example a Rust OMT tool) may already own HOSTNAME.local with a
+		// different address set; the dnssd library then keeps probing and never
+		// announces, so the Go source silently disappears from every browser.
+		Host: advertiseHost(),
 	}
 	srv, err := dnssd.NewService(cfg)
 	if err != nil {
@@ -144,11 +188,7 @@ func (b *Browser) ensureStarted() {
 			if urlHost == "" && len(addrs) > 0 {
 				urlHost = addrs[0]
 			}
-			url := "omt://" + urlHost
-			if e.Port > 0 {
-				url += ":" + itoa(e.Port)
-			}
-			url += "/" + source
+			url := sourceURL(urlHost, e.Port, addrs, source)
 			b.mu.Lock()
 			b.sources[e.Name] = Source{Name: e.Name, Host: host, Port: e.Port, Addresses: addrs, URL: url}
 			b.mu.Unlock()
