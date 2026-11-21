@@ -100,12 +100,14 @@ func (r *Receiver) readVideo() {
 			return
 		}
 		r.bytes.Add(uint64(HeaderSize + len(f.Data) + len(f.Metadata)))
-		xml := f.MetadataString()
-		if xml == "" {
-			xml = string(f.Data)
-		}
-		if info, ok := ParseSenderInfo(xml); ok {
-			r.info.Store(info)
+		if f.Header.Type == FrameMetadata {
+			xml := f.MetadataString()
+			if xml == "" {
+				xml = string(f.Data)
+			}
+			if info, ok := ParseSenderInfo(xml); ok {
+				r.info.Store(info)
+			}
 			continue
 		}
 		if f.Video == nil {
