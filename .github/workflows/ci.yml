@@ -6,46 +6,80 @@ on:
   pull_request:
 
 jobs:
-  test:
+  test-scalar:
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        simd: ["scalar", "simd"]
     runs-on: ${{ matrix.os }}
     env:
       CGO_ENABLED: "0"
-      GOEXPERIMENT: ${{ matrix.simd == 'simd' && 'simd' || '' }}
+      GOEXPERIMENT: ""
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.27.4"
           cache: true
-      - name: Test core
-        run: go test . ./cmd/...
-      - name: Vet
-        run: go vet . ./cmd/...
+      - run: go test . ./cmd/...
+      - run: go vet . ./cmd/...
 
-  example:
+  test-simd:
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     env:
-      GOEXPERIMENT: simd
-      CGO_ENABLED: ${{ runner.os == 'Windows' && '0' || '1' }}
+      CGO_ENABLED: "0"
+      GOEXPERIMENT: "simd"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version: "1.27.4"
           cache: true
-      - name: Linux dependencies
-        if: runner.os == 'Linux'
-        run: |
+      - run: go test . ./cmd/...
+      - run: go vet . ./cmd/...
+
+  example-linux:
+    runs-on: ubuntu-latest
+    env:
+      GOEXPERIMENT: "simd"
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.4"
+          cache: true
+      - run: |
           sudo apt-get update
-          sudo apt-get install -y libwayland-dev libxkbcommon-dev libx11-dev libx11-xcb-dev libgl1-mesa-dev libegl1-mesa-dev
-      - name: Build example
-        run: go build ./examples/gio-monitor
+          sudo apt-get install -y libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libx11-dev libx11-xcb-dev libgl1-mesa-dev libegl1-mesa-dev libvulkan-dev
+      - run: go build ./examples/gio-monitor
+
+  example-macos:
+    runs-on: macos-latest
+    env:
+      GOEXPERIMENT: "simd"
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.4"
+          cache: true
+      - run: go build ./examples/gio-monitor
+
+  example-windows:
+    runs-on: windows-latest
+    env:
+      GOEXPERIMENT: "simd"
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.4"
+          cache: true
+      - run: go build ./examples/gio-monitor
