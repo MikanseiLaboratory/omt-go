@@ -1,8 +1,7 @@
 # omt-go
 
-Pure Go implementation of [Open Media Transport](https://github.com/openmediatransport) 1.0 — video, audio and metadata over TCP with DNS-SD and an optional discovery server.
-
-No cgo, no libomtnet linkage. The codec is [vmx-go](https://github.com/MikanseiLaboratory/vmx-go).
+Pure Go implementation of [Open Media Transport (OMT) 1.0](https://github.com/openmediatransport).
+No cgo. VMX1 video is provided by [vmx-go](https://github.com/MikanseiLaboratory/vmx-go).
 
 ## Features
 
@@ -10,58 +9,49 @@ No cgo, no libomtnet linkage. The codec is [vmx-go](https://github.com/MikanseiL
 - VMX1 video and FPA1 planar float audio
 - Subscribe / Preview / Quality / Tally / OMTInfo metadata
 - DNS-SD (`_omt._tcp`) advertise and browse
-- OMT Discovery Server and client (`cmd/omt-discovery-server`)
-- Gio example: monitor and animated test-pattern sender with 1 kHz audio
+- OMT discovery server and client (`cmd/omt-discovery-server`)
+- Gio example: monitor and test-pattern sender
 
-## Status
-
-v0.1 is the minimum needed for the interoperability tests:
-
-| Path | Status |
-|---|---|
-| Rust Test Patterns → Go Gio Monitor | works on macOS |
-| Go Test Patterns → Rust Studio Monitor | works on macOS |
-| Go sender/receiver loopback | tested |
-| Discovery server relay | tested |
-| Windows | validated (core, Rust interop, DNS-SD, discovery server) |
-
-Not yet implemented: audio playback in the monitor, reconnect after a live
-socket failure, alpha video, 1/8 preview receive, and TLS.
-
-## Example
+## Quick start
 
 ```sh
-# Monitor: browse DNS-SD sources and display VMX1
+# Monitor a source
 GOEXPERIMENT=simd go run ./examples/gio-monitor -mode monitor \
   -url "omt://127.0.0.1:6400/Test Patterns"
 
-# Test-pattern sender: animated colour bars + 1 kHz stereo
+# Send color bars and a 1 kHz tone
 GOEXPERIMENT=simd go run ./examples/gio-monitor -mode send \
   -name "Go Test Patterns" -fps 30 -width 1920 -height 1080
 
-# With a discovery server instead of DNS-SD
+# Use a discovery server instead of DNS-SD
 go run ./cmd/omt-discovery-server -port 6399
 GOEXPERIMENT=simd go run ./examples/gio-monitor -mode monitor \
   -discovery-server omt://127.0.0.1:6399
 ```
 
-The example requires Go 1.27 and, on macOS/Linux, the Gio platform libraries.
-SIMD requires `GOEXPERIMENT=simd`; without it the scalar codec is used.
+## Requirements
+
+Go 1.27 or newer. SIMD is optional; without `GOEXPERIMENT=simd` the scalar
+VMX1 path is used. The example needs the usual Gio platform libraries on
+Linux/macOS.
+
+## Status
+
+Tested with Rust OMT tools and on Windows. See [docs/INTEROP.md](docs/INTEROP.md)
+and [docs/WINDOWS_TEST.md](docs/WINDOWS_TEST.md).
+
+Not implemented: audio playback in the monitor, automatic reconnect, alpha
+video, 1/8 preview receive, TLS.
 
 ## Protocol notes
 
 - Little-endian fields.
 - 16-byte common header, 32-byte video header, 24-byte audio header.
-- Video `DataLength` includes the 32-byte extended header, payload, and
-  per-frame metadata.
+- `DataLength` includes the extended header, payload, and per-frame metadata.
 - `MetadataLength` includes the trailing NUL for per-frame metadata.
-- The four Tally strings are matched verbatim, including the libomtnet
-  `Program==` quirk.
+- Tally strings are matched verbatim, including the libomtnet `Program==`
+  quirk.
 - Sender listens on 6400–6600 and advertises `_omt._tcp` as `HOST (Source)`.
-  Its SRV target is `HOST-omt.local` to coexist with other mDNS responders on
-  the same machine.
-- Discovery-server addresses are converted to URLs with IPv6 brackets
-  (`omt://[::1]:6400/Source`).
 
 ## License
 
