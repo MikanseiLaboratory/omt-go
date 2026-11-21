@@ -76,6 +76,7 @@ type appState struct {
 	height          int
 	port            int
 	discoveryServer string
+	verbose         bool
 
 	stop chan struct{}
 }
@@ -89,11 +90,12 @@ func main() {
 	height := flag.Int("height", 1080, "sender height")
 	port := flag.Int("port", 0, "sender port (0 = 6400-6600)")
 	ds := flag.String("discovery-server", "", "OMT discovery server URL (empty = DNS-SD)")
+	verbose := flag.Bool("v", false, "verbose logging")
 	flag.Parse()
 
 	a := &appState{
 		mode: mode(*m), name: *name, fps: *fps, width: *width, height: *height, port: *port,
-		discoveryServer: *ds, stop: make(chan struct{}),
+		discoveryServer: *ds, verbose: *verbose, stop: make(chan struct{}),
 	}
 	if a.mode != modeMonitor && a.mode != modeSend {
 		log.Fatalf("unknown mode %q", *m)
@@ -341,6 +343,9 @@ func (a *appState) drawStats(gtx layout.Context, f *frame) layout.Dimensions {
 }
 
 func (a *appState) connectURL(url string) {
+	if a.verbose {
+		log.Printf("connecting %s", url)
+	}
 	if a.rx != nil {
 		a.rx.Close()
 		a.rx = nil
@@ -425,6 +430,9 @@ func (a *appState) startSender() error {
 		return err
 	}
 	a.sender = s
+	if a.verbose {
+		log.Printf("sender %q on port %d", a.name, s.Port())
+	}
 	if a.fps < 1 {
 		a.fps = 30
 	}
