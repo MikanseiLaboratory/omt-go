@@ -158,3 +158,16 @@ func TestVideoDecoderReturnsError(t *testing.T) {
 		t.Fatalf("Decode after failure: %v", err)
 	}
 }
+
+func TestVideoDecoderColorSimdPath(t *testing.T) {
+	var dec VideoDecoder
+	if got := dec.ColorSimdPath(); got != "" {
+		t.Fatalf("ColorSimdPath before Decode = %q, want empty", got)
+	}
+	if _, err := dec.Decode(videoFrame(t, 64, 32, ColorBT709)); err != nil {
+		t.Fatal(err)
+	}
+	if got := dec.ColorSimdPath(); got == "" {
+		t.Fatal("ColorSimdPath empty after a successful Decode")
+	}
+}
