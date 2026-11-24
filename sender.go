@@ -2,6 +2,7 @@ package omt
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -30,6 +31,8 @@ type Sender struct {
 	bytesSent     atomic.Uint64
 	closing       chan struct{}
 }
+
+var _ io.Closer = (*Sender)(nil)
 
 type peer struct {
 	conn net.Conn

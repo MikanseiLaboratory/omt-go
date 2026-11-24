@@ -49,6 +49,13 @@ type sourceProvider interface {
 	Close()
 }
 
+// Compile-time checks for the interfaces this example relies on.
+var (
+	_ sourceProvider   = (*omt.Browser)(nil)
+	_ sourceProvider   = (*omt.ServerBrowser)(nil)
+	_ omt.FrameDecoder = (*omt.VideoDecoder)(nil)
+)
+
 type appState struct {
 	win   *app.Window
 	theme *material.Theme
@@ -362,8 +369,7 @@ func (a *appState) connectURL(url string) {
 
 func (a *appState) decodeLoop(rx *omt.Receiver) {
 	log.Printf("decode loop started")
-	var codec *vmx.Codec
-	var cw, ch int
+	var dec omt.VideoDecoder
 	var last time.Time
 	var fps float64
 	var count uint64
@@ -375,29 +381,17 @@ func (a *appState) decodeLoop(rx *omt.Receiver) {
 			if !ok {
 				return
 			}
-			if v.Width <= 0 || v.Height <= 0 {
-				continue
-			}
-			if codec == nil || cw != v.Width || ch != v.Height {
-				c, err := vmx.New(vmx.Config{Width: v.Width, Height: v.Height, Profile: vmx.ProfileOmtSQ, ColorSpace: vmx.ColorSpace(v.ColorSpace)})
-				if err != nil {
-					a.setStatus("codec: " + err.Error())
-					return
-				}
-				codec, cw, ch = c, v.Width, v.Height
-			}
 			start := time.Now()
-			if err := codec.LoadFrom(v.Data); err != nil {
-				log.Printf("load error: %v", err)
-				a.setStatus("decode: " + err.Error())
-				continue
-			}
-			img := image.NewRGBA(image.Rect(0, 0, v.Width, v.Height))
-			if err := codec.DecodeRGBA(img.Pix, img.Stride); err != nil {
+			decoded, err := dec.Decode(v)
+			if err != nil {
 				log.Printf("decode error: %v", err)
 				a.setStatus("decode: " + err.Error())
 				continue
 			}
+			// Decode reuses its pixel buffer and Gio uploads images from the
+			// render thread, so publish a copy instead of sharing it.
+			img := image.NewRGBA(decoded.Rect)
+			copy(img.Pix, decoded.Pix)
 			elapsed := time.Since(start)
 			now := time.Now()
 			if !last.IsZero() && now.Sub(last) > 0 {
@@ -412,7 +406,7 @@ func (a *appState) decodeLoop(rx *omt.Receiver) {
 			count++
 			a.latest.Store(&frame{img: img, width: v.Width, height: v.Height, fps: fps,
 				decodeMS: float64(elapsed.Microseconds()) / 1000, frames: count, drops: rx.Stats().FramesDropped,
-				info: "color=" + codec.ColorSimdPath()})
+				info: "color=" + dec.ColorSimdPath()})
 			a.win.Invalidate()
 		}
 	}

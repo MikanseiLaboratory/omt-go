@@ -7,6 +7,11 @@ import (
 	"github.com/MikanseiLaboratory/vmx-go"
 )
 
+// FrameDecoder converts encoded video frames into RGBA images.
+type FrameDecoder interface {
+	Decode(VideoFrame) (*image.RGBA, error)
+}
+
 // VideoDecoder converts VMX1 video frames into image.RGBA while reusing its
 // codec and pixel buffer. The zero value is ready to use. A VideoDecoder is
 // not safe for concurrent use; create one per goroutine.
@@ -17,6 +22,8 @@ type VideoDecoder struct {
 	colorSpace ColorSpace
 	img        *image.RGBA
 }
+
+var _ FrameDecoder = (*VideoDecoder)(nil)
 
 // Decode converts f into an RGBA image.
 //
@@ -53,6 +60,15 @@ func (d *VideoDecoder) Decode(f VideoFrame) (*image.RGBA, error) {
 		return nil, fmt.Errorf("omt: decode VMX1 frame: %w", err)
 	}
 	return d.img, nil
+}
+
+// ColorSimdPath reports the colour conversion kernel of the current codec
+// ("avx2", "neon" or "scalar"), or "" before the first Decode.
+func (d *VideoDecoder) ColorSimdPath() string {
+	if d.codec == nil {
+		return ""
+	}
+	return d.codec.ColorSimdPath()
 }
 
 // RGBA decodes the frame into a new image.RGBA.

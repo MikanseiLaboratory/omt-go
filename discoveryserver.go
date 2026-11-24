@@ -2,6 +2,7 @@ package omt
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"sort"
 	"sync"
@@ -17,6 +18,8 @@ type DiscoveryServer struct {
 	closed  bool
 	done    chan struct{}
 }
+
+var _ io.Closer = (*DiscoveryServer)(nil)
 
 type serverEntry struct {
 	addr  Address
@@ -248,6 +251,8 @@ type DiscoveryClient struct {
 	done    chan struct{}
 	once    sync.Once
 }
+
+var _ io.Closer = (*DiscoveryClient)(nil)
 
 func NewDiscoveryClient(url string) (*DiscoveryClient, error) {
 	host, port, _, err := ParseURL(url)

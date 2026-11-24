@@ -2,6 +2,7 @@ package omt
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -23,6 +24,8 @@ type Receiver struct {
 	bytes   atomic.Uint64
 	errors  atomic.Uint64
 }
+
+var _ io.Closer = (*Receiver)(nil)
 
 func Dial(url string, opts ...Option) (*Receiver, error) {
 	o := newOptions(opts...)
