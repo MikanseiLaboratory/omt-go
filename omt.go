@@ -59,6 +59,8 @@ func (c Codec) String() string {
 	return string(b)
 }
 
+var _ fmt.Stringer = Codec(0)
+
 // ColorSpace follows the OMT flag values.
 type ColorSpace int32
 

@@ -10,8 +10,8 @@
 2. Build/run the example:
 
    ```powershell
-   go run ./examples/gio-monitor -mode monitor -v
-   go run ./examples/gio-monitor -mode send -name "Go Test Patterns" -v
+   go run ./cmd/gio-monitor -mode monitor -v
+   go run ./cmd/gio-monitor -mode send -name "Go Test Patterns" -v
    ```
 
 3. Verify discovery and direct URL:

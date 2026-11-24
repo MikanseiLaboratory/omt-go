@@ -21,8 +21,8 @@ jobs:
         with:
           go-version: "1.27.4"
           cache: true
-      - run: go test . ./cmd/...
-      - run: go vet . ./cmd/...
+      - run: go test . ./cmd/omt-discovery-server
+      - run: go vet . ./cmd/omt-discovery-server
 
   test-simd:
     strategy:
@@ -39,8 +39,8 @@ jobs:
         with:
           go-version: "1.27.4"
           cache: true
-      - run: go test . ./cmd/...
-      - run: go vet . ./cmd/...
+      - run: go test . ./cmd/omt-discovery-server
+      - run: go vet . ./cmd/omt-discovery-server
 
   example-linux:
     runs-on: ubuntu-latest
@@ -56,7 +56,7 @@ jobs:
       - run: |
           sudo apt-get update
           sudo apt-get install -y libwayland-dev libxkbcommon-dev libxkbcommon-x11-dev libx11-dev libx11-xcb-dev libgl1-mesa-dev libegl1-mesa-dev libvulkan-dev libxcursor-dev libxfixes-dev libxrandr-dev libxi-dev
-      - run: go build ./examples/gio-monitor
+      - run: go build ./cmd/gio-monitor
 
   example-macos:
     runs-on: macos-latest
@@ -69,7 +69,7 @@ jobs:
         with:
           go-version: "1.27.4"
           cache: true
-      - run: go build ./examples/gio-monitor
+      - run: go build ./cmd/gio-monitor
 
   example-windows:
     runs-on: windows-latest
@@ -82,4 +82,4 @@ jobs:
         with:
           go-version: "1.27.4"
           cache: true
-      - run: go build ./examples/gio-monitor
+      - run: go build ./cmd/gio-monitor

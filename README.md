@@ -7,6 +7,7 @@ No cgo. VMX1 video is provided by [vmx-go](https://github.com/MikanseiLaboratory
 
 - OMT 1.0 frame headers and video/audio/metadata framing
 - VMX1 video and FPA1 planar float audio
+- `image.RGBA` output for received video (`VideoFrame.RGBA`, `VideoDecoder`)
 - Subscribe / Preview / Quality / Tally / OMTInfo metadata
 - DNS-SD (`_omt._tcp`) advertise and browse
 - OMT discovery server and client (`cmd/omt-discovery-server`)
@@ -16,17 +17,43 @@ No cgo. VMX1 video is provided by [vmx-go](https://github.com/MikanseiLaboratory
 
 ```sh
 # Monitor a source
-GOEXPERIMENT=simd go run ./examples/gio-monitor -mode monitor \
+GOEXPERIMENT=simd go run ./cmd/gio-monitor -mode monitor \
   -url "omt://127.0.0.1:6400/Test Patterns"
 
 # Send color bars and a 1 kHz tone
-GOEXPERIMENT=simd go run ./examples/gio-monitor -mode send \
+GOEXPERIMENT=simd go run ./cmd/gio-monitor -mode send \
   -name "Go Test Patterns" -fps 30 -width 1920 -height 1080
 
 # Use a discovery server instead of DNS-SD
 go run ./cmd/omt-discovery-server -port 6399
-GOEXPERIMENT=simd go run ./examples/gio-monitor -mode monitor \
+GOEXPERIMENT=simd go run ./cmd/gio-monitor -mode monitor \
   -discovery-server omt://127.0.0.1:6399
+```
+
+## Decoding frames
+
+`VideoFrame.RGBA` decodes a received VMX1 frame into a new `image.RGBA`:
+
+```go
+for f := range rx.Videos() {
+    if img := f.RGBA(); img != nil { // nil when the frame cannot be decoded
+        // upload img, e.g. paint.NewImageOp(img) with Gio
+    }
+}
+```
+
+For a stream of frames, reuse a `VideoDecoder` instead of allocating a codec
+and buffer per frame:
+
+```go
+var dec omt.VideoDecoder
+for f := range rx.Videos() {
+    img, err := dec.Decode(f) // img is reused until the next Decode
+    if err != nil {
+        continue
+    }
+    _ = img
+}
 ```
 
 ## Requirements
